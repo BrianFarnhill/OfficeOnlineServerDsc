@@ -209,13 +209,13 @@ function Get-OosDscInstalledProductVersion
     param ()
 
     return Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* | `
-        Select-Object DisplayName, DisplayVersion | `
-        Where-Object {
-        $_.DisplayName -eq "Microsoft Office Web Apps Server 2013" -or `
-            $_.DisplayName -eq "Microsoft Office Online Server"
-    } | ForEach-Object -Process {
-        return [Version]::Parse($_.DisplayVersion)
-    } | Select-Object -First 1
+            Select-Object DisplayName, DisplayVersion | `
+                Where-Object {
+                $_.DisplayName -eq "Microsoft Office Web Apps Server 2013" -or `
+                    $_.DisplayName -eq "Microsoft Office Online Server"
+            } | ForEach-Object -Process {
+                return [Version]::Parse($_.DisplayVersion)
+            } | Select-Object -First 1
 }
 
 
@@ -332,12 +332,30 @@ function Test-OosDscFarmOu
         $ExistingOU
     )
 
+    if ($DesiredOU -like "LDAP://*")
+    {
+        $sanitizedFarmOU = $DesiredOU -replace 'LDAP://'
+    }
+    elseif ($DesiredOU -like "ntds://*")
+    {
+        throw "FarmOU in ntds:// format is not supported";
+    }
+    else
+    {
+        $str = ($DesiredOU -replace '/', '\').Trim('\');
+        $splitOu = $str -split '\\'
+        [array]::Reverse($splitOu)
+        $sanitizedFarmOU = "OU=" + ($splitOu -join ",OU=");
+    }
+
     $adsi = [adsisearcher]'(objectCategory=organizationalUnit)'
-    $adsi.Filter = "name=$DesiredOU"
-    $ou = $adsi.FindAll()
+    $searchRoot = "," + $adsi.SearchRoot.Path -replace 'LDAP://'
+
+    $adsi.Filter = "distinguishedName=$($sanitizedFarmOU)$searchRoot"
+    $ou = $adsi.FindOne()
+
     if ($ou.path)
     {
-        $searchRoot = "," + $adsi.SearchRoot.Path -replace 'LDAP://'
         $ldapResult = $ou.path -replace $searchRoot
         Write-Verbose -Message "LDAP search result: $ldapResult"
         Write-Verbose "Current Farm OU: $ExistingOU"
